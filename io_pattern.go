@@ -8,6 +8,7 @@ const (
 	Absorb OpKind = iota
 	Squeeze
 	Ratchet
+	Hint
 )
 
 func (kind OpKind) String() string {
@@ -18,6 +19,8 @@ func (kind OpKind) String() string {
 		return "Squeeze"
 	case Ratchet:
 		return "Ratchet"
+	case Hint:
+		return "Hint"
 	}
 	return "Unknown"
 }
@@ -46,6 +49,8 @@ func (io *IOPattern) PPrint() string {
 			kindTag = "Squeeze"
 		case Ratchet:
 			kindTag = "Ratchet"
+		case Hint:
+			kindTag = "Hint"
 		}
 		result += fmt.Sprintf("    * %s %d %s\n", kindTag, op.Size, op.Label)
 	}
@@ -76,6 +81,8 @@ func parseOpKind(patStr []byte) (OpKind, []byte, error) {
 		return Squeeze, patStr[1:], nil
 	case 'R':
 		return Ratchet, patStr[1:], nil
+	case 'H':
+		return Hint, patStr[1:], nil
 	}
 	return 0, nil, fmt.Errorf("parseOpKind: unknown op kind: %s", string(patStr[:1]))
 }
