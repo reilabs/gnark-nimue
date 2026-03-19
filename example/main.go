@@ -13,24 +13,22 @@ import (
 )
 
 type TestCircuit struct {
-	IO         []byte
 	Transcript [24]uints.U8 `gnark:",public"`
 }
 
 func (circuit *TestCircuit) Define(api frontend.API) error {
-	arthur, err := gnark_nimue.NewKeccakArthur(api, circuit.IO, circuit.Transcript[:], false)
-
+	nimue, err := gnark_nimue.NewKeccakNimue(api, circuit.Transcript[:])
 	if err != nil {
 		return err
 	}
 
 	firstChallenge := make([]uints.U8, 8)
-	err = arthur.FillChallengeBytes(firstChallenge)
+	err = nimue.FillChallengeBytes(firstChallenge)
 	if err != nil {
 		return err
 	}
 	firstReply := make([]uints.U8, 8)
-	err = arthur.FillNextBytes(firstReply)
+	err = nimue.FillNextBytes(firstReply)
 	if err != nil {
 		return err
 	}
@@ -39,12 +37,12 @@ func (circuit *TestCircuit) Define(api frontend.API) error {
 	}
 
 	secondChallenge := make([]uints.U8, 16)
-	err = arthur.FillChallengeBytes(secondChallenge)
+	err = nimue.FillChallengeBytes(secondChallenge)
 	if err != nil {
 		return err
 	}
 	secondReply := make([]uints.U8, 16)
-	err = arthur.FillNextBytes(secondReply)
+	err = nimue.FillNextBytes(secondReply)
 	if err != nil {
 		return err
 	}
@@ -56,15 +54,7 @@ func (circuit *TestCircuit) Define(api frontend.API) error {
 }
 
 func Example1() {
-	// the protocol has two rounds in which the verifier sends 8/16 bytes of randomness and the prover must send it back
-	badIOPat := "bad-protocol\u0000S8first challenge\u0000A8first reply\u0000S16second challenge\u0000A16second reply"
-	io := gnark_nimue.IOPattern{}
-	_ = io.Parse([]byte(badIOPat))
-	fmt.Printf("io: %s\n", io.PPrint())
-
-	circ := TestCircuit{
-		IO: []byte(badIOPat),
-	}
+	circ := TestCircuit{}
 
 	ccs, _ := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &circ)
 	pk, vk, _ := groth16.Setup(ccs)
@@ -74,7 +64,6 @@ func Example1() {
 	transcript := [24]uints.U8(uints.NewU8Array(transcriptBytes[:]))
 
 	assignment := TestCircuit{
-		IO:         []byte(badIOPat),
 		Transcript: transcript,
 	}
 
@@ -87,18 +76,17 @@ func Example1() {
 }
 
 type WhirCircuit struct {
-	IO         []byte
 	Transcript [2312]uints.U8 `gnark:",public"`
 }
 
 func (circuit *WhirCircuit) Define(api frontend.API) error {
-	arthur, err := gnark_nimue.NewKeccakArthur(api, circuit.IO, circuit.Transcript[:], false)
+	nimue, err := gnark_nimue.NewKeccakNimue(api, circuit.Transcript[:])
 	if err != nil {
 		return err
 	}
 
 	merkleRoot := make([]uints.U8, 32)
-	err = arthur.FillNextBytes(merkleRoot)
+	err = nimue.FillNextBytes(merkleRoot)
 	if err != nil {
 		return err
 	}
@@ -109,21 +97,21 @@ func (circuit *WhirCircuit) Define(api frontend.API) error {
 	api.Println(rootVars...)
 
 	oodCh := [1]frontend.Variable{}
-	err = arthur.FillChallengeScalars(oodCh[:])
+	err = nimue.FillChallengeScalars(oodCh[:])
 	if err != nil {
 		return err
 	}
 	api.Println(oodCh[:]...)
 
 	oodAns := [1]frontend.Variable{}
-	err = arthur.FillNextScalars(oodAns[:])
+	err = nimue.FillNextScalars(oodAns[:])
 	if err != nil {
 		return err
 	}
 	api.Println(oodAns[:]...)
 
 	initialCombinationRandomness := [1]frontend.Variable{}
-	err = arthur.FillChallengeScalars(initialCombinationRandomness[:])
+	err = nimue.FillChallengeScalars(initialCombinationRandomness[:])
 	if err != nil {
 		return err
 	}
@@ -131,14 +119,14 @@ func (circuit *WhirCircuit) Define(api frontend.API) error {
 
 	for range 4 {
 		sumcheckPolyEvals := [3]frontend.Variable{}
-		err = arthur.FillNextScalars(sumcheckPolyEvals[:])
+		err = nimue.FillNextScalars(sumcheckPolyEvals[:])
 		if err != nil {
 			return err
 		}
 		api.Println(sumcheckPolyEvals[:]...)
 
 		foldingRandomnessSingle := [1]frontend.Variable{}
-		err = arthur.FillChallengeScalars(foldingRandomnessSingle[:])
+		err = nimue.FillChallengeScalars(foldingRandomnessSingle[:])
 		if err != nil {
 			return err
 		}
@@ -149,15 +137,7 @@ func (circuit *WhirCircuit) Define(api frontend.API) error {
 }
 
 func ExampleWhir() {
-
-	ioPat := "🌪\ufe0f\u0000A32merkle_digest\u0000S47ood_query\u0000A32ood_ans\u0000S47initial_combination_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A32merkle_digest\u0000S47ood_query\u0000A32ood_ans\u0000S246stir_queries\u0000S32pow_queries\u0000A8pow-nonce\u0000S47combination_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A32merkle_digest\u0000S47ood_query\u0000A32ood_ans\u0000S42stir_queries\u0000S32pow_queries\u0000A8pow-nonce\u0000S47combination_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A32merkle_digest\u0000S47ood_query\u0000A32ood_ans\u0000S24stir_queries\u0000S32pow_queries\u0000A8pow-nonce\u0000S47combination_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A32merkle_digest\u0000S47ood_query\u0000A32ood_ans\u0000S18stir_queries\u0000S32pow_queries\u0000A8pow-nonce\u0000S47combination_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A96sumcheck_poly\u0000S47folding_randomness\u0000A32final_coeffs\u0000S14final_queries\u0000S32pow_queries\u0000A8pow-nonce"
-	io := gnark_nimue.IOPattern{}
-	_ = io.Parse([]byte(ioPat))
-	fmt.Printf("io: %s\n", io.PPrint())
-
-	circ := WhirCircuit{
-		IO: []byte(ioPat),
-	}
+	circ := WhirCircuit{}
 
 	ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &circ)
 	if err != nil {
@@ -174,7 +154,6 @@ func ExampleWhir() {
 	}
 
 	assignment := WhirCircuit{
-		IO:         []byte(ioPat),
 		Transcript: transcript,
 	}
 
@@ -187,19 +166,18 @@ func ExampleWhir() {
 }
 
 type WhirSkyscraperCircuit struct {
-	IO         []byte
 	Transcript [2312]uints.U8 `gnark:",public"`
 }
 
 func (circuit *WhirSkyscraperCircuit) Define(api frontend.API) error {
 	sc := skyscraper.NewSkyscraper(api, 2)
-	arthur, err := gnark_nimue.NewSkyscraperArthur(api, sc, circuit.IO, circuit.Transcript[:], false)
+	nimue, err := gnark_nimue.NewSkyscraperNimue(api, sc, gnark_nimue.NimueInit{}, circuit.Transcript[:])
 	if err != nil {
 		return err
 	}
 
 	merkleRoot := make([]frontend.Variable, 1)
-	err = arthur.FillNextScalars(merkleRoot)
+	err = nimue.FillNextScalars(merkleRoot)
 	if err != nil {
 		return err
 	}
@@ -207,21 +185,21 @@ func (circuit *WhirSkyscraperCircuit) Define(api frontend.API) error {
 	api.Println(merkleRoot...)
 
 	oodCh := [1]frontend.Variable{}
-	err = arthur.FillChallengeScalars(oodCh[:])
+	err = nimue.FillChallengeScalars(oodCh[:])
 	if err != nil {
 		return err
 	}
 	api.Println(oodCh[:]...)
 
 	oodAns := [1]frontend.Variable{}
-	err = arthur.FillNextScalars(oodAns[:])
+	err = nimue.FillNextScalars(oodAns[:])
 	if err != nil {
 		return err
 	}
 	api.Println(oodAns[:]...)
 
 	initialCombinationRandomness := [1]frontend.Variable{}
-	err = arthur.FillChallengeScalars(initialCombinationRandomness[:])
+	err = nimue.FillChallengeScalars(initialCombinationRandomness[:])
 	if err != nil {
 		return err
 	}
@@ -229,14 +207,14 @@ func (circuit *WhirSkyscraperCircuit) Define(api frontend.API) error {
 
 	for range 4 {
 		sumcheckPolyEvals := [3]frontend.Variable{}
-		err = arthur.FillNextScalars(sumcheckPolyEvals[:])
+		err = nimue.FillNextScalars(sumcheckPolyEvals[:])
 		if err != nil {
 			return err
 		}
 		api.Println(sumcheckPolyEvals[:]...)
 
 		foldingRandomnessSingle := [1]frontend.Variable{}
-		err = arthur.FillChallengeScalars(foldingRandomnessSingle[:])
+		err = nimue.FillChallengeScalars(foldingRandomnessSingle[:])
 		if err != nil {
 			return err
 		}
@@ -247,14 +225,7 @@ func (circuit *WhirSkyscraperCircuit) Define(api frontend.API) error {
 }
 
 func ExampleWhirSkyScraper() {
-	ioPat := "🌪\ufe0f\u0000A1merkle_digest\u0000S1ood_query\u0000A1ood_ans\u0000S1initial_combination_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A1merkle_digest\u0000S1ood_query\u0000A1ood_ans\u0000S17stir_queries\u0000S3pow_queries\u0000A8pow-nonce\u0000S1combination_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A1merkle_digest\u0000S1ood_query\u0000A1ood_ans\u0000S3stir_queries\u0000S3pow_queries\u0000A8pow-nonce\u0000S1combination_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A1merkle_digest\u0000S1ood_query\u0000A1ood_ans\u0000S2stir_queries\u0000S3pow_queries\u0000A8pow-nonce\u0000S1combination_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A1merkle_digest\u0000S1ood_query\u0000A1ood_ans\u0000S2stir_queries\u0000S3pow_queries\u0000A8pow-nonce\u0000S1combination_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A3sumcheck_poly\u0000S1folding_randomness\u0000A1final_coeffs\u0000S1final_queries\u0000S3pow_queries\u0000A8pow-nonce"
-	io := gnark_nimue.IOPattern{}
-	_ = io.Parse([]byte(ioPat))
-	fmt.Printf("io: %s\n", io.PPrint())
-
-	circ := WhirSkyscraperCircuit{
-		IO: []byte(ioPat),
-	}
+	circ := WhirSkyscraperCircuit{}
 
 	ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &circ)
 	if err != nil {
@@ -269,7 +240,6 @@ func ExampleWhirSkyScraper() {
 	}
 
 	assignment := WhirSkyscraperCircuit{
-		IO:         []byte(ioPat),
 		Transcript: transcript,
 	}
 

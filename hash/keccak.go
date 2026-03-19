@@ -69,6 +69,6 @@ func NewKeccak(api frontend.API) (Keccak, error) {
 			state: state,
 		},
 		absorbPos:  0,
-		squeezePos: 0,
+		squeezePos: 136,
 	}, nil
 }

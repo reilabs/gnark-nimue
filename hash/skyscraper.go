@@ -48,6 +48,9 @@ type Skyscraper DuplexHash[frontend.Variable]
 
 func NewSkyScraper(sc *skyscraper.Skyscraper) (Skyscraper, error) {
 	return &DuplexSponge[frontend.Variable, *SkyscraperState]{
-		sponge: &SkyscraperState{skyscraper: sc},
+		sponge: &SkyscraperState{
+			skyscraper: sc,
+			s:          [2]frontend.Variable{0, 0},
+		},
 	}, nil
 }
