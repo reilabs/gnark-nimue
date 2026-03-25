@@ -103,51 +103,90 @@ type nativeNimue[H hash.DuplexHash[frontend.Variable]] struct {
 	api        frontend.API
 	transcript []uints.U8
 	safe       *Safe[frontend.Variable, H]
+	// byteBuffer holds leftover bytes from the last field element decomposition
+	// in FillChallengeBytes, matching Rust spongefish's DecodingFieldBuffer behavior.
+	byteBuffer []uints.U8
+	// lastSqueezeBytes holds the full 32 LE bytes from the most recent field
+	// element squeeze. FillNextBytes uses these as the "background" when
+	// absorbing fewer than 32 bytes: the new bytes overwrite the low positions
+	// while the remaining positions retain the previous rate value, matching
+	// the native byte-level sponge behavior.
+	lastSqueezeBytes []uints.U8
 }
 
-func (nimue *nativeNimue[H]) FillNextBytes(uints []uints.U8) error {
-	copy(uints, nimue.transcript)
-	nimue.transcript = nimue.transcript[len(uints):]
-	// Pack bytes into LE field elements (32 bytes per element) to match the
-	// native byte-level sponge which packs multiple bytes into each rate slot.
-	for i := 0; i < len(uints); i += 32 {
-		end := min(i+32, len(uints))
-		fe := frontend.Variable(0)
-		curMul := big.NewInt(1)
-		for _, b := range uints[i:end] {
-			fe = nimue.api.Add(fe, nimue.api.Mul(b.Val, curMul))
-			curMul = new(big.Int).Mul(curMul, big.NewInt(256))
+func (nimue *nativeNimue[H]) FillNextBytes(input []uints.U8) error {
+	copy(input, nimue.transcript)
+	nimue.transcript = nimue.transcript[len(input):]
+	nimue.byteBuffer = nil
+
+	// Pack bytes into field elements matching the native byte-level sponge.
+	// The native sponge writes bytes into a 32-byte rate block; a partial
+	// write leaves the remaining bytes unchanged from the last permutation.
+	// We replicate this by merging new bytes with the "background" rate bytes
+	// (from the last squeeze) and absorbing the resulting field element.
+	pos := 0
+	for pos < len(input) {
+		remaining := len(input) - pos
+		if remaining >= 32 {
+			felt := leU8sToVar(nimue.api, input[pos:pos+32])
+			nimue.safe.Absorb([]frontend.Variable{felt})
+			pos += 32
+		} else {
+			rateBytes := make([]uints.U8, 32)
+			if nimue.lastSqueezeBytes != nil {
+				copy(rateBytes, nimue.lastSqueezeBytes)
+			}
+			copy(rateBytes, input[pos:pos+remaining])
+			felt := leU8sToVar(nimue.api, rateBytes)
+			nimue.safe.Absorb([]frontend.Variable{felt})
+			pos += remaining
 		}
-		nimue.safe.Absorb([]frontend.Variable{fe})
 	}
+
+	nimue.lastSqueezeBytes = nil
 	return nil
 }
 
-func (nimue *nativeNimue[H]) FillChallengeBytes(out []uints.U8) error {
-	if len(out) == 0 {
-		return nil
-	}
+func (nimue *nativeNimue[H]) decomposeFieldElementToBytes() []uints.U8 {
 	tmp := make([]frontend.Variable, 1)
-	for i := 0; i < len(out); {
-		nimue.safe.Squeeze(tmp)
-		// Decompose field element to LE bytes. BN254 scalars fit in 254 bits;
-		// pad to 256 (32 bytes) with two trailing zero bits.
-		allBits := bits2.ToBinary(nimue.api, tmp[0])
-		for len(allBits) < 256 {
-			allBits = append(allBits, frontend.Variable(0))
+	nimue.safe.Squeeze(tmp)
+	// Decompose field element to LE bytes. BN254 scalars fit in 254 bits;
+	// pad to 256 (32 bytes) with two trailing zero bits.
+	allBits := bits2.ToBinary(nimue.api, tmp[0])
+	for len(allBits) < 256 {
+		allBits = append(allBits, frontend.Variable(0))
+	}
+	bytes := make([]uints.U8, 32)
+	for k := range 32 {
+		bytes[k] = uints.NewU8(0)
+		curMul := 1
+		for j := range 8 {
+			bytes[k].Val = nimue.api.Add(nimue.api.Mul(curMul, allBits[8*k+j]), bytes[k].Val)
+			curMul *= 2
 		}
-		for k := range 32 {
-			if i >= len(out) {
-				break
-			}
-			out[i] = uints.NewU8(0)
-			curMul := 1
-			for j := range 8 {
-				out[i].Val = nimue.api.Add(nimue.api.Mul(curMul, allBits[8*k+j]), out[i].Val)
-				curMul *= 2
-			}
-			i++
+	}
+	nimue.lastSqueezeBytes = bytes
+	return bytes
+}
+
+func (nimue *nativeNimue[H]) FillChallengeBytes(out []uints.U8) error {
+	i := 0
+	// Drain buffered bytes from a previous squeeze first.
+	if len(nimue.byteBuffer) > 0 {
+		n := min(len(out), len(nimue.byteBuffer))
+		copy(out[:n], nimue.byteBuffer[:n])
+		nimue.byteBuffer = nimue.byteBuffer[n:]
+		i = n
+	}
+	// Squeeze fresh field elements as needed.
+	for i < len(out) {
+		bytes := nimue.decomposeFieldElementToBytes()
+		n := min(len(out)-i, 32)
+		copy(out[i:i+n], bytes[:n])
+		if n < 32 {
+			nimue.byteBuffer = bytes[n:]
 		}
+		i += n
 	}
 	return nil
 }
@@ -164,23 +203,53 @@ func (nimue *nativeNimue[H]) FillNextScalars(out []frontend.Variable) error {
 			curMul.Mul(curMul, big.NewInt(256))
 		}
 	}
+	nimue.byteBuffer = nil
+	nimue.lastSqueezeBytes = nil
 	nimue.safe.Absorb(out)
 	return nil
 }
 
 func (nimue *nativeNimue[H]) FillChallengeScalars(out []frontend.Variable) error {
-	// Squeeze 2 field elements per challenge to match spongefish's DecodingFieldBuffer
-	// which uses (MODULUS_BIT_SIZE.div_ceil(8) + 32) = 64 bytes per challenge for
-	// statistical uniformity, then reduces mod p.
+	if len(nimue.byteBuffer) > 0 {
+		// There are leftover bytes from a prior FillChallengeBytes call.
+		// Consume them through the byte stream so that the sponge state
+		// matches the native byte-level sponge exactly.
+		for i := range out {
+			loBytes := make([]uints.U8, 32)
+			hiBytes := make([]uints.U8, 32)
+			if err := nimue.FillChallengeBytes(loBytes); err != nil {
+				return err
+			}
+			if err := nimue.FillChallengeBytes(hiBytes); err != nil {
+				return err
+			}
+			lo := leU8sToVar(nimue.api, loBytes)
+			hi := leU8sToVar(nimue.api, hiBytes)
+			out[i] = nimue.api.Add(lo, nimue.api.Mul(hi, twoPow256ModP))
+		}
+		return nil
+	}
+
+	// Fast path: no leftover bytes, squeeze field elements directly.
 	tmp := make([]frontend.Variable, 2)
 	for i := range out {
 		nimue.safe.Squeeze(tmp)
 		lo := tmp[0]
 		hi := tmp[1]
-		// combined = lo + hi * 2^256 (mod p, implicit in gnark field arithmetic)
 		out[i] = nimue.api.Add(lo, nimue.api.Mul(hi, twoPow256ModP))
 	}
 	return nil
+}
+
+// leU8sToVar reconstructs a field element from 32 little-endian bytes.
+func leU8sToVar(api frontend.API, bytes []uints.U8) frontend.Variable {
+	result := frontend.Variable(0)
+	curMul := big.NewInt(1)
+	for _, b := range bytes {
+		result = api.Add(result, api.Mul(b.Val, curMul))
+		curMul = new(big.Int).Mul(curMul, big.NewInt(256))
+	}
+	return result
 }
 
 func (nimue *nativeNimue[H]) PrintState(api frontend.API) {
@@ -204,5 +273,5 @@ func NewSkyscraperNimue(api frontend.API, sc *skyscraper.Skyscraper, init NimueI
 	}
 	safe := NewSafe(sponge)
 	safe.Absorb([]frontend.Variable{init.ProtocolID[0], init.ProtocolID[1], init.SessionID})
-	return &nativeNimue[hash.Skyscraper]{api, transcript, safe}, nil
+	return &nativeNimue[hash.Skyscraper]{api, transcript, safe, nil, nil}, nil
 }
