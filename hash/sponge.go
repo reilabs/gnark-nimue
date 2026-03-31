@@ -42,13 +42,13 @@ func (s *DuplexSponge[U, S]) Absorb(input []U) {
 		if s.absorbPos == s.sponge.R() {
 			s.sponge.Permute()
 			s.absorbPos = 0
-		} else {
-			chunkLen := min(len(input), s.sponge.R()-s.absorbPos)
-			chunk, rest := input[:chunkLen], input[chunkLen:]
-			copy(s.sponge.State()[s.absorbPos:], chunk)
-			s.absorbPos += chunkLen
-			input = rest
 		}
+
+		chunkLen := min(len(input), s.sponge.R()-s.absorbPos)
+		chunk, rest := input[:chunkLen], input[chunkLen:]
+		copy(s.sponge.State()[s.absorbPos:], chunk)
+		s.absorbPos += chunkLen
+		input = rest
 	}
 }
 
