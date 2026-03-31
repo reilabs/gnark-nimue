@@ -39,8 +39,10 @@ func (circuit *TestCircuit) Define(api frontend.API) error {
 func TestEndToEnd(t *testing.T) {
 	circ := TestCircuit{}
 
-	ccs, _ := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &circ)
-	pk, vk, _ := groth16.Setup(ccs)
+	ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &circ)
+	assert.NoError(t, err)
+	pk, vk, err := groth16.Setup(ccs)
+	assert.NoError(t, err)
 
 	transcriptBytes := []byte{231, 221, 225, 64, 121, 143, 37, 241, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 	transcript := [24]uints.U8{}
@@ -52,10 +54,13 @@ func TestEndToEnd(t *testing.T) {
 		Transcript: transcript,
 	}
 
-	witness, _ := frontend.NewWitness(&assignment, ecc.BN254.ScalarField())
-	publicWitness, _ := witness.Public()
+	witness, err := frontend.NewWitness(&assignment, ecc.BN254.ScalarField())
+	assert.NoError(t, err)
+	publicWitness, err := witness.Public()
+	assert.NoError(t, err)
 
-	proof, _ := groth16.Prove(ccs, pk, witness)
-	vErr := groth16.Verify(proof, vk, publicWitness)
-	assert.Nil(t, vErr)
+	proof, err := groth16.Prove(ccs, pk, witness)
+	assert.NoError(t, err)
+	err = groth16.Verify(proof, vk, publicWitness)
+	assert.NoError(t, err)
 }

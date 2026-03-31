@@ -68,11 +68,7 @@ func (nimue *byteNimue[H]) FillNextScalars(scalars []frontend.Variable) error {
 		if err != nil {
 			return err
 		}
-		curMul := big.NewInt(1)
-		for _, b := range bytes {
-			scalars[i] = nimue.api.Add(scalars[i], nimue.api.Mul(b.Val, curMul))
-			curMul.Mul(curMul, big.NewInt(256))
-		}
+		scalars[i] = leU8sToVar(nimue.api, bytes)
 	}
 	return nil
 }
@@ -85,10 +81,7 @@ func (nimue *byteNimue[H]) FillChallengeScalars(scalars []frontend.Variable) err
 		if err != nil {
 			return err
 		}
-		scalars[i] = frontend.Variable(0)
-		for _, b := range bytes {
-			scalars[i] = nimue.api.Add(b.Val, nimue.api.Mul(scalars[i], 256))
-		}
+		scalars[i] = leU8sToVar(nimue.api, bytes)
 	}
 	return nil
 }
@@ -196,12 +189,7 @@ func (nimue *nativeNimue[H]) FillNextScalars(out []frontend.Variable) error {
 	for i := range out {
 		bytes := nimue.transcript[:wordSize]
 		nimue.transcript = nimue.transcript[wordSize:]
-		out[i] = frontend.Variable(0)
-		curMul := big.NewInt(1)
-		for _, b := range bytes {
-			out[i] = nimue.api.Add(out[i], nimue.api.Mul(b.Val, curMul))
-			curMul.Mul(curMul, big.NewInt(256))
-		}
+		out[i] = leU8sToVar(nimue.api, bytes)
 	}
 	nimue.byteBuffer = nil
 	nimue.lastSqueezeBytes = nil

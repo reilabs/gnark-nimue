@@ -36,8 +36,7 @@ func (s *SkyscraperState) State() []frontend.Variable {
 }
 
 func (s *SkyscraperState) Zeroize(index int) {
-	s.s[0] = 0
-	s.s[1] = 0
+	s.s[index] = 0
 }
 
 func (s *SkyscraperState) PrintState(api frontend.API) {
