@@ -31,7 +31,7 @@ func (k *KeccakState) Permute() {
 		state[i/8][i%8] = s
 	}
 	result := keccakf.Permute(k.uapi, state)
-	for i, _ := range k.state {
+	for i := range k.state {
 		k.state[i] = result[i/8][i%8]
 	}
 }
@@ -69,6 +69,6 @@ func NewKeccak(api frontend.API) (Keccak, error) {
 			state: state,
 		},
 		absorbPos:  0,
-		squeezePos: 0,
+		squeezePos: 136,
 	}, nil
 }

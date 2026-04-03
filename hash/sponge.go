@@ -36,44 +36,43 @@ func (s *DuplexSponge[U, S]) Initialize(iv [32]byte) {
 }
 
 func (s *DuplexSponge[U, S]) Absorb(input []U) {
+	s.squeezePos = s.sponge.R()
+
 	for len(input) > 0 {
 		if s.absorbPos == s.sponge.R() {
 			s.sponge.Permute()
 			s.absorbPos = 0
-		} else {
-			chunkLen := min(len(input), s.sponge.R()-s.absorbPos)
-			chunk, rest := input[:chunkLen], input[chunkLen:]
-			copy(s.sponge.State()[s.absorbPos:], chunk)
-			s.absorbPos += chunkLen
-			input = rest
 		}
+
+		chunkLen := min(len(input), s.sponge.R()-s.absorbPos)
+		chunk, rest := input[:chunkLen], input[chunkLen:]
+		copy(s.sponge.State()[s.absorbPos:], chunk)
+		s.absorbPos += chunkLen
+		input = rest
 	}
-	s.squeezePos = s.sponge.R()
 }
 
 func (s *DuplexSponge[U, S]) Squeeze(output []U) {
-	if len(output) == 0 {
-		return
-	}
+	for len(output) > 0 {
+		if s.squeezePos == s.sponge.R() {
+			s.squeezePos = 0
+			s.absorbPos = 0
+			s.sponge.Permute()
+		}
 
-	if s.squeezePos == s.sponge.R() {
-		s.squeezePos = 0
-		s.absorbPos = 0
-		s.sponge.Permute()
+		chunkLen := min(len(output), s.sponge.R()-s.squeezePos)
+		copy(output[:chunkLen], s.sponge.State()[s.squeezePos:])
+		s.squeezePos += chunkLen
+		output = output[chunkLen:]
 	}
-
-	chunkLen := min(len(output), s.sponge.R()-s.squeezePos)
-	output, rest := output[:chunkLen], output[chunkLen:]
-	copy(output, s.sponge.State())
-	s.squeezePos += chunkLen
-	s.Squeeze(rest)
 }
 
 func (s *DuplexSponge[U, S]) Ratchet() {
-	s.sponge.Permute()
 	for i := range s.sponge.R() {
 		s.sponge.Zeroize(i)
 	}
+	s.sponge.Permute()
+	s.absorbPos = 0
 	s.squeezePos = s.sponge.R()
 }
 
