@@ -22,6 +22,8 @@ type Nimue interface {
 	FillNextScalars(scalars []frontend.Variable) error
 	FillChallengeScalars(scalars []frontend.Variable) error
 	PrintState(api frontend.API)
+	// RemainingTranscriptLen returns the number of unconsumed transcript bytes.
+	RemainingTranscriptLen() int
 }
 
 type byteNimue[H hash.DuplexHash[uints.U8]] struct {
@@ -90,6 +92,10 @@ func (nimue *byteNimue[H]) PrintState(api frontend.API) {
 	msg := fmt.Sprintf("remaining transcript bytes: %d", len(nimue.transcript))
 	api.Println(msg)
 	nimue.safe.sponge.PrintState(api)
+}
+
+func (nimue *byteNimue[H]) RemainingTranscriptLen() int {
+	return len(nimue.transcript)
 }
 
 type nativeNimue[H hash.DuplexHash[frontend.Variable]] struct {
@@ -244,22 +250,27 @@ func (nimue *nativeNimue[H]) PrintState(api frontend.API) {
 	nimue.safe.sponge.PrintState(api)
 }
 
+func (nimue *nativeNimue[H]) RemainingTranscriptLen() int {
+	return len(nimue.transcript)
+}
+
 // NimueInit holds the protocol_id (as two field elements: low 32 bytes,
 // high 32 bytes) and session_id (one field element, 32 bytes) used to initialize
 // the sponge before any transcript operations.
 type NimueInit struct {
 	ProtocolID [2]frontend.Variable
 	SessionID  frontend.Variable
+	InstanceID frontend.Variable
 }
 
 // NewSkyscraperNimue creates an Nimue whose sponge is initialized by absorbing
-// the provided ProtocolID and SessionID field elements.
+// the provided initiliazation parameters field elements.
 func NewSkyscraperNimue(api frontend.API, sc *skyscraper.Skyscraper, init NimueInit, transcript []uints.U8) (Nimue, error) {
 	sponge, err := hash.NewSkyScraper(sc)
 	if err != nil {
 		return nil, err
 	}
 	safe := NewSafe(sponge)
-	safe.Absorb([]frontend.Variable{init.ProtocolID[0], init.ProtocolID[1], init.SessionID})
+	safe.Absorb([]frontend.Variable{init.ProtocolID[0], init.ProtocolID[1], init.SessionID, init.InstanceID})
 	return &nativeNimue[hash.Skyscraper]{api, transcript, safe, nil, nil}, nil
 }
